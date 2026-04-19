@@ -62,6 +62,13 @@ typedef struct {
 
 void protocol_init(void);
 bool protocol_connect(uint32_t timeout_ms);
+
+/* Queue without sending immediately. Used by the demo to prove priority order. */
+protocol_status_t protocol_queue(uint8_t packet_type, const uint8_t *payload, uint16_t payload_len);
+
+/* Transmit queued packets, always draining high/control before normal telemetry. */
+protocol_status_t protocol_flush(void);
+
 protocol_status_t protocol_send(uint8_t packet_type, const uint8_t *payload, uint16_t payload_len);
 protocol_status_t protocol_receive(protocol_packet_t *packet, uint32_t timeout_ms);
 protocol_status_t protocol_disconnect(void);

@@ -500,8 +500,15 @@ def describe_packet(packet: Packet) -> str:
 
     if packet.packet_type == PKT_EVENT and packet.length == struct.calcsize("<BIH"):
         event_id, uptime_ms, detail = struct.unpack("<BIH", packet.payload)
+        event_names = {
+            0x01: "STARTUP",
+            0x02: "LED_OR_ERROR",
+            0x03: "PRIORITY_TEST",
+            0x04: "PING",
+        }
+        event_name = event_names.get(event_id, "UNKNOWN")
         return (
-            f"EVENT seq={packet.sequence} id=0x{event_id:02x} "
+            f"EVENT seq={packet.sequence} id=0x{event_id:02x} name={event_name} "
             f"uptime={uptime_ms}ms detail=0x{detail:04x}"
         )
 

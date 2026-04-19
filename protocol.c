@@ -393,6 +393,12 @@ static protocol_status_t transmit_item_with_retry(const tx_item_t *item) {
 static protocol_status_t flush_tx_queue(void) {
     tx_item_t item;
 
+    /*
+     * Priority scheduling happens here. The dequeue_next() helper always checks
+     * the high/control queue before the normal queue, so a queued EVENT will be
+     * transmitted before queued TELEMETRY even if the telemetry was queued
+     * first. This is the behaviour demonstrated by main.c every fifth sample.
+     */
     while (dequeue_next(&item)) {
         protocol_status_t status = transmit_item_with_retry(&item);
         if (status != PROTOCOL_OK) {
@@ -469,9 +475,9 @@ bool protocol_connect(uint32_t timeout_ms) {
     return false;
 }
 
-protocol_status_t protocol_send(uint8_t packet_type,
-                                const uint8_t *payload,
-                                uint16_t payload_len) {
+protocol_status_t protocol_queue(uint8_t packet_type,
+                                 const uint8_t *payload,
+                                 uint16_t payload_len) {
     if (payload_len > PROTOCOL_MAX_PAYLOAD) {
         return PROTOCOL_ERR_LENGTH;
     }
@@ -487,13 +493,35 @@ protocol_status_t protocol_send(uint8_t packet_type,
     }
 
     uint8_t priority = priority_for_type(packet_type);
+
+    /*
+     * EVENT is urgent and goes into the high/control queue. TELEMETRY is normal
+     * traffic and goes into the normal queue. Control packets also use the
+     * high/control queue because ACK/NACK/session traffic should not wait behind
+     * routine sensor updates.
+     */
     tx_queue_t *queue = (priority == PROTOCOL_PRIORITY_NORMAL) ? &normal_queue : &high_queue;
 
     if (!queue_push(queue, packet_type, priority, payload, payload_len)) {
         return PROTOCOL_ERR_QUEUE_FULL;
     }
 
+    return PROTOCOL_OK;
+}
+
+protocol_status_t protocol_flush(void) {
     return flush_tx_queue();
+}
+
+protocol_status_t protocol_send(uint8_t packet_type,
+                                const uint8_t *payload,
+                                uint16_t payload_len) {
+    protocol_status_t status = protocol_queue(packet_type, payload, payload_len);
+    if (status != PROTOCOL_OK) {
+        return status;
+    }
+
+    return protocol_flush();
 }
 
 protocol_status_t protocol_receive(protocol_packet_t *packet, uint32_t timeout_ms) {

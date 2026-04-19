@@ -266,9 +266,11 @@ The Pico demo does the following:
 2. Performs a CONNECT / CONNECT_ACK handshake with the Python host.
 3. Sends a startup EVENT packet.
 4. Sends TELEMETRY once per second.
-5. Receives COMMAND packets from Python.
-6. Uses COMMAND `0x01` to set the onboard LED.
-7. Uses COMMAND `0x02` as a ping command and responds with an EVENT.
+5. Every fifth telemetry cycle, queues TELEMETRY first and an urgent EVENT
+   second, then flushes both to prove priority handling.
+6. Receives COMMAND packets from Python.
+7. Uses COMMAND `0x01` to set the onboard LED.
+8. Uses COMMAND `0x02` as a ping command and responds with an EVENT.
 
 The telemetry payload is binary:
 
@@ -287,6 +289,15 @@ The event payload is binary:
 | event_id | `uint8_t` | Event identifier |
 | uptime_ms | `uint32_t` | Pico uptime in milliseconds |
 | detail | `uint16_t` | Event-specific detail value |
+
+Demo event IDs:
+
+| Event | ID | Meaning |
+|---|---:|---|
+| STARTUP | `0x01` | Pico has connected and started the demo |
+| LED_OR_ERROR | `0x02` | LED command response or demo error event |
+| PRIORITY_TEST | `0x03` | Injected urgent event for the priority test |
+| PING | `0x04` | Response to the host ping command |
 
 ## Testing Methodology
 
@@ -316,9 +327,48 @@ For hardware testing, connect the Pico, run the Python host, and confirm that:
 - CONNECT completes.
 - A startup EVENT is printed.
 - TELEMETRY arrives once per second.
+- Every fifth telemetry sample produces a `PRIORITY_TEST` EVENT immediately
+  before the queued TELEMETRY packet.
 - `--led on` and `--led off` cause EVENT responses from the Pico.
 - Unplugging or pausing the host causes timeout behaviour instead of a permanent
   block.
+
+## Hardware Priority Test
+
+**Test name:** Priority Injection During Telemetry Stream
+
+**Goal:** Prove that high-priority EVENT packets are transmitted before normal
+TELEMETRY packets when both are waiting in the Pico transmit queues.
+
+**Method:** The Pico sends telemetry every second. On every fifth telemetry
+cycle, `main.c` deliberately queues the TELEMETRY packet first and then queues a
+high-priority EVENT packet with event name `PRIORITY_TEST`. It then calls
+`protocol_flush()`. A FIFO-only protocol would send the TELEMETRY first. This
+protocol sends the EVENT first because `protocol_flush()` drains the high/control
+queue before the normal queue.
+
+**Expected result:** The Python host should show normal telemetry packets, then
+a `PRIORITY_TEST` EVENT inserted immediately before the telemetry sample that
+triggered it. Sequence numbers should still increase by one each packet.
+
+**Example expected output:**
+
+```text
+Connected to Pico
+EVENT seq=0 id=0x01 name=STARTUP uptime=422ms detail=0x1234
+EVENT seq=1 id=0x04 name=PING uptime=430ms detail=0xbeef
+TELEMETRY seq=2 uptime=1424ms sample=0 temp=21.50C voltage=3300mV led=0
+TELEMETRY seq=3 uptime=2424ms sample=1 temp=21.51C voltage=3300mV led=0
+TELEMETRY seq=4 uptime=3424ms sample=2 temp=21.52C voltage=3300mV led=0
+TELEMETRY seq=5 uptime=4424ms sample=3 temp=21.53C voltage=3300mV led=0
+TELEMETRY seq=6 uptime=5424ms sample=4 temp=21.54C voltage=3300mV led=0
+EVENT seq=7 id=0x03 name=PRIORITY_TEST uptime=6424ms detail=0x0005
+TELEMETRY seq=8 uptime=6424ms sample=5 temp=21.55C voltage=3300mV led=0
+```
+
+This matters for embedded systems because routine telemetry can be continuous,
+but urgent events such as alarms, limit violations, or button interrupts should
+not be stuck behind lower-priority status updates.
 
 ## Limitations
 
