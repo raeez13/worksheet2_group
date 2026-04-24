@@ -1,6 +1,10 @@
 # Priority Event + Telemetry Protocol
 
-University project implementation of a lightweight custom binary communication
+Raeez Jaldin - 23039423
+Mohammad Faraj - 23077476
+
+
+This is a University project group implementation of a lightweight custom binary communication
 protocol for a Raspberry Pi Pico and a Python host. The link uses USB Serial
 through the Pico SDK stdio USB backend and PySerial on the host.
 
